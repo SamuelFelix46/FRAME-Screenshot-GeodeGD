@@ -1,0 +1,23 @@
+{
+  "geode": "5.10.1",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "zemci.frame",
+  "version": "1.4.2",
+  "name": "FRAME Screenshot Studio",
+  "developer": "zemci",
+  "description": "Capture, organize and edit your Geometry Dash screenshots in a fullscreen studio.",
+  "links": {
+    "source": "https://github.com/SamuelFelix46/FRAME-Screenshot-GeodeGD"
+  },
+  "issues": {
+    "url": "https://github.com/SamuelFelix46/FRAME-Screenshot-GeodeGD/issues",
+    "info": "Report bugs with your GD, Geode and FRAME versions and steps to reproduce."
+  },
+  "tags": [
+    "utility",
+    "offline",
+    "interface"
+  ]
+}

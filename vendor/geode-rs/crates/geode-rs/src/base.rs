@@ -1,0 +1,652 @@
+#![allow(unsafe_op_in_unsafe_fn, clippy::missing_safety_doc)]
+
+#[cfg(target_os = "windows")]
+mod windows_mod {
+    use std::sync::OnceLock;
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+    use windows::core::PCSTR;
+
+    static BASE: OnceLock<usize> = OnceLock::new();
+    static GEODE_BASE: OnceLock<usize> = OnceLock::new();
+    static COCOS_BASE: OnceLock<usize> = OnceLock::new();
+    static EXTENSIONS_BASE: OnceLock<usize> = OnceLock::new();
+
+    pub fn get() -> usize {
+        *BASE.get_or_init(|| unsafe { GetModuleHandleA(None).map(|h| h.0 as usize).unwrap_or(0) })
+    }
+
+    pub fn get_geode() -> usize {
+        *GEODE_BASE.get_or_init(|| unsafe {
+            GetModuleHandleA(windows::core::s!("Geode.dll"))
+                .map(|h| h.0 as usize)
+                .unwrap_or(0)
+        })
+    }
+
+    pub fn get_cocos() -> usize {
+        *COCOS_BASE.get_or_init(|| unsafe {
+            GetModuleHandleA(windows::core::s!("libcocos2d.dll"))
+                .map(|h| h.0 as usize)
+                .unwrap_or(0)
+        })
+    }
+
+    pub fn get_extensions() -> usize {
+        *EXTENSIONS_BASE.get_or_init(|| unsafe {
+            GetModuleHandleA(windows::core::s!("libExtensions.dll"))
+                .map(|h| h.0 as usize)
+                .unwrap_or(0)
+        })
+    }
+
+    pub unsafe fn get_proc_address(module: usize, name: &[u8]) -> Option<usize> {
+        let addr = if name.last() == Some(&0) {
+            GetProcAddress(
+                windows::Win32::Foundation::HMODULE(module as *mut _),
+                PCSTR(name.as_ptr()),
+            )?
+        } else {
+            let name_c = std::ffi::CString::new(name).ok()?;
+            GetProcAddress(
+                windows::Win32::Foundation::HMODULE(module as *mut _),
+                PCSTR(name_c.as_ptr() as _),
+            )?
+        };
+        Some(addr as usize)
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::sync::OnceLock;
+
+    static BASE: OnceLock<usize> = OnceLock::new();
+    static GEODE_BASE: OnceLock<usize> = OnceLock::new();
+
+    pub fn get() -> usize {
+        *BASE.get_or_init(|| unsafe {
+            let image_count = _dyld_image_count();
+            for i in 0..image_count {
+                let name = std::ffi::CStr::from_ptr(_dyld_get_image_name(i));
+                let name_str = name.to_string_lossy();
+                if !name_str.ends_with(".dylib") {
+                    return _dyld_get_image_vmaddr_slide(i) + 0x100000000;
+                }
+            }
+            _dyld_get_image_vmaddr_slide(0) + 0x100000000
+        })
+    }
+
+    pub fn get_geode() -> usize {
+        *GEODE_BASE.get_or_init(|| unsafe {
+            let image_count = _dyld_image_count();
+            for i in 0..image_count {
+                let name = std::ffi::CStr::from_ptr(_dyld_get_image_name(i));
+                let name_str = name.to_string_lossy();
+                if name_str.contains("Geode") {
+                    return _dyld_get_image_vmaddr_slide(i);
+                }
+            }
+            0
+        })
+    }
+
+    unsafe extern "C" {
+        fn _dyld_image_count() -> u32;
+        fn _dyld_get_image_name(image_index: u32) -> *const std::os::raw::c_char;
+        fn _dyld_get_image_vmaddr_slide(image_index: u32) -> usize;
+    }
+}
+
+#[cfg(target_os = "ios")]
+mod ios {
+    use std::sync::OnceLock;
+
+    static BASE: OnceLock<usize> = OnceLock::new();
+    static GEODE_BASE: OnceLock<usize> = OnceLock::new();
+
+    pub fn get() -> usize {
+        *BASE.get_or_init(|| unsafe {
+            let image_count = _dyld_image_count();
+            for i in 0..image_count {
+                let name = std::ffi::CStr::from_ptr(_dyld_get_image_name(i));
+                let name_str = name.to_string_lossy();
+                if name_str.ends_with("GeometryJump") {
+                    return _dyld_get_image_vmaddr_slide(i) + 0x100000000;
+                }
+            }
+            0
+        })
+    }
+
+    pub fn get_geode() -> usize {
+        *GEODE_BASE.get_or_init(|| unsafe {
+            let image_count = _dyld_image_count();
+            for i in 0..image_count {
+                let name = std::ffi::CStr::from_ptr(_dyld_get_image_name(i));
+                let name_str = name.to_string_lossy();
+                if name_str.contains("Geode") {
+                    return _dyld_get_image_vmaddr_slide(i);
+                }
+            }
+            0
+        })
+    }
+
+    unsafe extern "C" {
+        fn _dyld_image_count() -> u32;
+        fn _dyld_get_image_name(image_index: u32) -> *const std::os::raw::c_char;
+        fn _dyld_get_image_vmaddr_slide(image_index: u32) -> usize;
+    }
+}
+
+#[cfg(target_os = "android")]
+mod android {
+    use std::sync::OnceLock;
+
+    static BASE: OnceLock<usize> = OnceLock::new();
+    static GEODE_BASE: OnceLock<usize> = OnceLock::new();
+
+    pub fn get() -> usize {
+        *BASE.get_or_init(|| unsafe {
+            let handle = dlopen(
+                b"libcocos2dcpp.so\0".as_ptr() as *const std::os::raw::c_char,
+                RTLD_LAZY | RTLD_NOLOAD,
+            );
+            if handle.is_null() {
+                return 0;
+            }
+
+            let sym = dlsym(
+                handle,
+                b"JNI_OnLoad\0".as_ptr() as *const std::os::raw::c_char,
+            );
+            if sym.is_null() {
+                dlclose(handle);
+                return 0;
+            }
+
+            let mut info: Dl_info = std::mem::zeroed();
+            if dladdr(sym, &mut info) != 0 {
+                info.dli_fbase as usize
+            } else {
+                0
+            }
+        })
+    }
+
+    pub fn get_geode() -> usize {
+        *GEODE_BASE.get_or_init(|| unsafe {
+            let handle = get_geode_handle();
+            if handle.is_null() {
+                return 0;
+            }
+
+            let sym = dlsym(
+                handle,
+                b"_ZN5geode6Loader3getEv\0".as_ptr() as *const std::os::raw::c_char,
+            );
+            let mut info: Dl_info = std::mem::zeroed();
+            if !sym.is_null() && dladdr(sym, &mut info) != 0 {
+                info.dli_fbase as usize
+            } else {
+                0
+            }
+        })
+    }
+
+    const RTLD_LAZY: std::os::raw::c_int = 0x00001;
+    const RTLD_NOLOAD: std::os::raw::c_int = 0x00004;
+
+    #[repr(C)]
+    struct Dl_info {
+        dli_fname: *const std::os::raw::c_char,
+        dli_fbase: *mut std::os::raw::c_void,
+        dli_sname: *const std::os::raw::c_char,
+        dli_saddr: *mut std::os::raw::c_void,
+    }
+
+    fn get_gd_handle() -> *mut std::os::raw::c_void {
+        static GD_HANDLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let handle = *GD_HANDLE.get_or_init(|| {
+            const RTLD_LAZY: std::os::raw::c_int = 0x1;
+            const RTLD_NOLOAD: std::os::raw::c_int = 0x4;
+            unsafe {
+                dlopen(
+                    b"libcocos2dcpp.so\0".as_ptr() as *const std::os::raw::c_char,
+                    RTLD_LAZY | RTLD_NOLOAD,
+                ) as usize
+            }
+        });
+        handle as *mut std::os::raw::c_void
+    }
+
+    fn get_geode_handle() -> *mut std::os::raw::c_void {
+        static GEODE_HANDLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let handle = *GEODE_HANDLE.get_or_init(|| unsafe {
+            for name in [
+                b"libGeode.so\0".as_slice(),
+                b"Geode.android64.so\0".as_slice(),
+                b"Geode.android32.so\0".as_slice(),
+            ] {
+                let handle = dlopen(
+                    name.as_ptr() as *const std::os::raw::c_char,
+                    RTLD_LAZY | RTLD_NOLOAD,
+                );
+                if !handle.is_null() {
+                    return handle as usize;
+                }
+            }
+            0
+        });
+        handle as *mut std::os::raw::c_void
+    }
+
+    pub fn android_resolve_symbol_abs(
+        sym_bytes: &[u8],
+        slot: &std::sync::atomic::AtomicUsize,
+    ) -> usize {
+        use std::sync::atomic::Ordering;
+        const SENTINEL: usize = usize::MAX;
+
+        let cached = slot.load(Ordering::Relaxed);
+        if cached == SENTINEL {
+            return 0;
+        }
+        if cached != 0 {
+            return cached;
+        }
+
+        if sym_bytes.is_empty() || sym_bytes[0] == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        let handle = get_gd_handle();
+        let addr = unsafe {
+            let sym = dlsym(handle, sym_bytes.as_ptr() as *const std::os::raw::c_char);
+            sym as usize
+        };
+
+        if addr == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        slot.store(addr, Ordering::Relaxed);
+        addr
+    }
+
+    pub fn android_resolve_geode_symbol_abs(
+        sym_bytes: &[u8],
+        slot: &std::sync::atomic::AtomicUsize,
+    ) -> usize {
+        use std::sync::atomic::Ordering;
+        const SENTINEL: usize = usize::MAX;
+
+        let cached = slot.load(Ordering::Relaxed);
+        if cached == SENTINEL {
+            return 0;
+        }
+        if cached != 0 {
+            return cached;
+        }
+
+        if sym_bytes.is_empty() || sym_bytes[0] == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        let handle = get_geode_handle();
+        let mut addr = if handle.is_null() {
+            0
+        } else {
+            unsafe { dlsym(handle, sym_bytes.as_ptr() as *const std::os::raw::c_char) as usize }
+        };
+
+        if addr == 0 {
+            addr = unsafe {
+                dlsym(
+                    std::ptr::null_mut(),
+                    sym_bytes.as_ptr() as *const std::os::raw::c_char,
+                ) as usize
+            };
+        }
+
+        if addr == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        slot.store(addr, Ordering::Relaxed);
+        addr
+    }
+
+    pub fn android_resolve_sym(sym_bytes: &[u8], slot: &std::sync::atomic::AtomicUsize) -> usize {
+        use std::sync::atomic::Ordering;
+        const SENTINEL: usize = usize::MAX;
+
+        let cached = slot.load(Ordering::Relaxed);
+        if cached == SENTINEL {
+            return 0;
+        }
+        if cached != 0 {
+            return cached;
+        }
+
+        if sym_bytes.is_empty() || sym_bytes[0] == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        let handle = get_gd_handle();
+        let addr = unsafe {
+            let sym = dlsym(handle, sym_bytes.as_ptr() as *const std::os::raw::c_char);
+            sym as usize
+        };
+
+        if addr == 0 {
+            slot.store(SENTINEL, Ordering::Relaxed);
+            return 0;
+        }
+
+        let base = get();
+        let offset = if addr > base { addr - base } else { 0 };
+        slot.store(
+            if offset == 0 { SENTINEL } else { offset },
+            Ordering::Relaxed,
+        );
+        offset
+    }
+
+    unsafe extern "C" {
+        fn dlopen(
+            filename: *const std::os::raw::c_char,
+            flag: std::os::raw::c_int,
+        ) -> *mut std::os::raw::c_void;
+        fn dlsym(
+            handle: *mut std::os::raw::c_void,
+            symbol: *const std::os::raw::c_char,
+        ) -> *mut std::os::raw::c_void;
+        fn dlclose(handle: *mut std::os::raw::c_void) -> std::os::raw::c_int;
+        fn dladdr(addr: *const std::os::raw::c_void, info: *mut Dl_info) -> std::os::raw::c_int;
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub use windows_mod::{get, get_cocos, get_extensions, get_geode, get_proc_address};
+
+#[cfg(target_os = "macos")]
+pub use macos::{get, get_geode};
+
+#[cfg(target_os = "ios")]
+pub use ios::{get, get_geode};
+
+#[cfg(target_os = "android")]
+pub use android::{
+    android_resolve_geode_symbol_abs, android_resolve_sym, android_resolve_symbol_abs, get,
+    get_geode,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolScope {
+    Process,
+    Geode,
+    Cocos,
+    Extensions,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SymbolResolveError {
+    pub owner: &'static str,
+    pub function: &'static str,
+}
+
+impl SymbolResolveError {
+    pub const fn new(owner: &'static str, function: &'static str) -> Self {
+        Self { owner, function }
+    }
+}
+
+impl std::fmt::Display for SymbolResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.owner.is_empty() {
+            write!(f, "failed to resolve {}", self.function)
+        } else {
+            write!(f, "failed to resolve {}::{}", self.owner, self.function)
+        }
+    }
+}
+
+impl std::error::Error for SymbolResolveError {}
+
+#[allow(dead_code)]
+fn load_cached_symbol(
+    slot: &std::sync::atomic::AtomicUsize,
+    resolve: impl FnOnce() -> usize,
+) -> usize {
+    use std::sync::atomic::Ordering;
+
+    const SENTINEL: usize = usize::MAX;
+
+    let cached = slot.load(Ordering::Relaxed);
+    if cached == SENTINEL {
+        return 0;
+    }
+    if cached != 0 {
+        return cached;
+    }
+
+    let addr = resolve();
+    slot.store(if addr == 0 { SENTINEL } else { addr }, Ordering::Relaxed);
+    if addr == 0 { 0 } else { addr }
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+)))]
+pub fn get() -> usize {
+    0
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+)))]
+pub fn get_geode() -> usize {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub unsafe fn get_proc_address(_module: usize, _name: &[u8]) -> Option<usize> {
+    None
+}
+
+pub fn resolve_symbol(
+    scope: SymbolScope,
+    name: &[u8],
+    slot: &std::sync::atomic::AtomicUsize,
+) -> usize {
+    #[cfg(target_os = "windows")]
+    {
+        let modules: &[usize] = match scope {
+            SymbolScope::Process => &[get(), get_geode(), get_cocos(), get_extensions()],
+            SymbolScope::Geode => &[get_geode()],
+            SymbolScope::Cocos => &[get_cocos()],
+            SymbolScope::Extensions => &[get_extensions()],
+        };
+        resolve_windows_symbol_in_modules_abs(modules, name, slot)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let _ = scope;
+        return resolve_dylib_symbol_abs(name, slot);
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        match scope {
+            SymbolScope::Process => {
+                return android_resolve_symbol_abs(name, slot);
+            }
+            SymbolScope::Geode => return android_resolve_geode_symbol_abs(name, slot),
+            SymbolScope::Cocos => return android_resolve_symbol_abs(name, slot),
+            SymbolScope::Extensions => return 0,
+        }
+    }
+
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    )))]
+    {
+        let _ = (scope, name, slot);
+        0
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn resolve_windows_symbol_abs(
+    module: usize,
+    name: &[u8],
+    slot: &std::sync::atomic::AtomicUsize,
+) -> usize {
+    load_cached_symbol(slot, || {
+        unsafe { get_proc_address(module, name) }.unwrap_or(0)
+    })
+}
+
+#[cfg(target_os = "windows")]
+pub fn resolve_windows_symbol_in_modules_abs(
+    modules: &[usize],
+    name: &[u8],
+    slot: &std::sync::atomic::AtomicUsize,
+) -> usize {
+    load_cached_symbol(slot, || {
+        let mut addr = 0;
+        for &module in modules {
+            if module == 0 {
+                continue;
+            }
+            addr = unsafe { get_proc_address(module, name) }.unwrap_or(0);
+            if addr != 0 {
+                break;
+            }
+        }
+        addr
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn resolve_windows_symbol_abs(
+    _module: usize,
+    _name: &[u8],
+    _slot: &std::sync::atomic::AtomicUsize,
+) -> usize {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn resolve_windows_symbol_in_modules_abs(
+    _modules: &[usize],
+    _name: &[u8],
+    _slot: &std::sync::atomic::AtomicUsize,
+) -> usize {
+    0
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub unsafe fn dylib_resolve_sym(name: &[u8]) -> Option<usize> {
+    unsafe extern "C" {
+        fn dlsym(
+            handle: *mut std::ffi::c_void,
+            symbol: *const std::os::raw::c_char,
+        ) -> *mut std::ffi::c_void;
+    }
+    const RTLD_DEFAULT: *mut std::ffi::c_void = std::ptr::null_mut();
+    let sym = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr() as *const std::os::raw::c_char) };
+    if sym.is_null() {
+        None
+    } else {
+        Some(sym as usize)
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+pub unsafe fn dylib_resolve_sym(_name: &[u8]) -> Option<usize> {
+    None
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn resolve_dylib_symbol_abs(name: &[u8], slot: &std::sync::atomic::AtomicUsize) -> usize {
+    load_cached_symbol(slot, || unsafe { dylib_resolve_sym(name) }.unwrap_or(0))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+pub fn resolve_dylib_symbol_abs(_name: &[u8], _slot: &std::sync::atomic::AtomicUsize) -> usize {
+    0
+}
+
+#[cfg(target_os = "android")]
+pub unsafe fn android_dlsym_geode(name: &[u8]) -> Option<usize> {
+    unsafe extern "C" {
+        fn dlopen(
+            filename: *const std::os::raw::c_char,
+            flag: std::os::raw::c_int,
+        ) -> *mut std::ffi::c_void;
+        fn dlsym(
+            handle: *mut std::ffi::c_void,
+            symbol: *const std::os::raw::c_char,
+        ) -> *mut std::ffi::c_void;
+    }
+    const RTLD_LAZY: std::os::raw::c_int = 0x1;
+    const RTLD_NOLOAD: std::os::raw::c_int = 0x4;
+
+    #[cfg(target_arch = "aarch64")]
+    let lib_names: &[&[u8]] = &[b"Geode.android64.so\0", b"libGeode.so\0"];
+    #[cfg(target_arch = "arm")]
+    let lib_names: &[&[u8]] = &[b"Geode.android32.so\0", b"libGeode.so\0"];
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "arm")))]
+    let lib_names: &[&[u8]] = &[b"libGeode.so\0"];
+
+    for lib in lib_names {
+        let handle = unsafe {
+            dlopen(
+                lib.as_ptr() as *const std::os::raw::c_char,
+                RTLD_LAZY | RTLD_NOLOAD,
+            )
+        };
+        if !handle.is_null() {
+            let sym = unsafe { dlsym(handle, name.as_ptr() as *const std::os::raw::c_char) };
+            if !sym.is_null() {
+                return Some(sym as usize);
+            }
+        }
+    }
+
+    let sym = unsafe {
+        dlsym(
+            std::ptr::null_mut(),
+            name.as_ptr() as *const std::os::raw::c_char,
+        )
+    };
+    if sym.is_null() {
+        None
+    } else {
+        Some(sym as usize)
+    }
+}
+
+// FIXME: move this out of here
+#[cfg(not(target_os = "android"))]
+pub unsafe fn android_dlsym_geode(_name: &[u8]) -> Option<usize> {
+    None
+}

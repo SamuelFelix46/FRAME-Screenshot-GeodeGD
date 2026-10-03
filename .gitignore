@@ -1,0 +1,8 @@
+/target/
+/dist/
+/vendor/geode-rs/.git/
+*.tmp
+*.pdb
+*.log
+.DS_Store
+Thumbs.db

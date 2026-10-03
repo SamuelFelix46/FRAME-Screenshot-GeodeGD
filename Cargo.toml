@@ -1,0 +1,32 @@
+[package]
+name = "frame-studio"
+version = "1.4.2"
+edition = "2024"
+authors = ["zemci"]
+license = "MIT"
+
+[lib]
+name = "frame_studio"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["native"]
+native = ["dep:geode-rs", "dep:geode-egui", "frame-keyboard"]
+frame-keyboard = []
+
+[dependencies]
+geode-rs = { path = "vendor/geode-rs/crates/geode-rs", optional = true }
+geode-egui = { path = "vendor/geode-rs/crates/geode-egui", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+imageproc = { version = "0.26", default-features = false, features = ["text"] }
+ab_glyph = "0.2"
+epaint_default_fonts = "0.36.2"
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+strip = "debuginfo"
+
+[workspace]

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/broma-rs",
+    "crates/geode-codegen",
+    "crates/geode-egui",
+    "crates/geode-rs",
+    "crates/geode-macros",
+    "crates/stl-core",
+]
