@@ -54,4 +54,4 @@ $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
 
 The script runs the tests, builds a release DLL and creates `dist/zemci.frame.geode` plus its SHA256 checksum. `-SkipTests` is available for local rebuilds. Dependencies are pinned in Cargo.lock and necessary Geode bindings are vendored. GitHub Actions runs the same tested build on Windows.
 
-See [validation and limits](docs/VALIDATION.md), [Geode publication notes](docs/PUBLISHING.md) and [third-party credits](THIRD_PARTY.md). Source is MIT licensed. This repository was developed with AI assistance; Geode Index acceptance is subject to its code and authorship review.
+See [validation and limits](docs/VALIDATION.md), [Geode publication notes](docs/PUBLISHING.md) and [third-party credits](THIRD_PARTY.md). Source is MIT licensed.

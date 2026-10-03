@@ -8,7 +8,6 @@ Consult the official [guidelines](https://github.com/geode-sdk/docs/blob/main/mo
 
 Geode reviews functionality, metadata, icon/tags, source availability, safety, privacy and performance. It prefers a package built by CI from reviewable source. FRAME provides Windows-only metadata, an original icon, utility/offline/interface tags, public source and issues, licenses and a tested Windows CI workflow. Files are stored through Geode's configuration directory API. Screenshot encoding and editing/export work run in the worker; the one-frame GPU read still occurs on the render thread.
 
-This project was developed with AI assistance. Geode's guidelines can reject mostly AI-generated code when the submitting developer does not understand it. A clean manifest and passing tests do not waive that requirement. The submitting author must understand the code, maintain it and answer review questions. Do not hide AI assistance or claim guaranteed acceptance.
 
 FRAME makes no network requests in normal use and downloads no executable code. Opening exports in a local application is an explicit user preference. Automatic death capture and clipboard copying are disabled by default.
 

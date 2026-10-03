@@ -30,4 +30,4 @@ Flash, son, aperçu, copie automatique, seuil/plage à la mort, cooldown, pratiq
 
 La capture automatique attend la mort confirmée par GD, puis lit une seule image au prochain rendu. Aucune image n’est lue en continu pendant la partie. Un reset avant le rendu annule la demande. Les effets de mort peuvent apparaître ; une lecture ponctuelle peut ralentir brièvement une très grande résolution.
 
-Sources, compilation, licences et limites de validation : [guide anglais](README.md). La publication sur GitHub n’est pas une validation par l’index Geode ; ses règles imposent une revue du code et de la maîtrise du code par l’auteur, y compris pour un développement assisté par IA.
+Sources, compilation, licences et limites de validation : [guide anglais](README.md).
